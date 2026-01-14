@@ -5,29 +5,20 @@ use CRM_Acereports_ExtensionUtil as E;
 
 class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
 
-  // Live data, TBD.
-  //  private $_customDataTransactionalData_fieldIdLetterGroup = 32;
-  //  private $_customDataTransactionalData_valuesTall = "TALL', 'FOAL'";
-  //  private $_customDataTransactionalData_valuesTpg = 'TPG';
-  //  private $_customDataTransactionalData_tableName = '';
-  //  private $_customDataTransactionalData_column = '';
-  //
-  // Dev data, to be replaced with live data, above.
-
   /**
    * Custom field id for relevant custom field.
    */
-  private $_customDataTransactionalData_fieldIdLetterGroup = 7;
+  private $_customDataTransactionalData_fieldIdLetterGroup = 32;
 
   /**
    * "TALL/FOAL" values in that custom field. String for use in mysql IN();
    */
-  private $_customDataTransactionalData_valuesTall = '1, 2';
+  private $_customDataTransactionalData_valuesTall = "'TALL', 'FOAL'";
 
   /**
    * "TPG" values in that custom field. String for use in mysql IN();
    */
-  private $_customDataTransactionalData_valuesTpg = 3;
+  private $_customDataTransactionalData_valuesTpg = 'TPG';
 
   /**
    * Custom-group table name for relevant custom field (auto-populated via api in __construct() )
