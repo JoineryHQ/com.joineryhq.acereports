@@ -50,6 +50,11 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
   protected $_customGroupGroupBy = FALSE;
 
   public function __construct() {
+    // These are local-dev values, to be commented out before commit to live!
+    // $this->_customDataTransactionalData_fieldIdLetterGroup = 6;
+    // $this->_customDataTransactionalData_valuesTall = "1, 2";
+    // $this->_customDataTransactionalData_valuesTpg = '3';
+
     $customField = \Civi\Api4\CustomField::get(TRUE)
       ->addWhere('id', '=', $this->_customDataTransactionalData_fieldIdLetterGroup)
       ->setLimit(1)
@@ -343,6 +348,12 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
     // to configure a 'group by' setting. Therefore we don't need parent::groupBy() at
     // all, and can simply force 'group by civicrm_contact.id'
     $this->_groupBy = " GROUP BY {$this->_aliases['civicrm_contact']}.id";
+  }
+
+  public function orderBy() {
+    // This report template offers no sorting options, so we don't need parent::orderBy().
+    // We'll just hard-code sorting by contact.sort_name
+    $this->_orderBy = "ORDER BY {$this->_aliases['civicrm_contact']}.sort_name";
   }
 
   private function _fatalError($msg) {
