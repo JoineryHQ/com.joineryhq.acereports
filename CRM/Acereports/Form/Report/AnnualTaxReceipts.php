@@ -18,7 +18,7 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
   /**
    * "TPG" values in that custom field. String for use in mysql IN();
    */
-  private $_customDataTransactionalData_valuesTpg = 'TPG';
+  private $_customDataTransactionalData_valuesTpg = "'TPG'";
 
   /**
    * Custom-group table name for relevant custom field (auto-populated via api in __construct() )
