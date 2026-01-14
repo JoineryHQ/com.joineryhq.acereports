@@ -203,7 +203,7 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
         FROM  civicrm_contact {$this->_aliases['civicrm_contact']} {$this->_aclFrom}
           INNER JOIN civicrm_contribution {$this->_aliases['civicrm_contribution']}
             ON {$this->_aliases['civicrm_contact']}.id =
-               {$this->_aliases['civicrm_contribution']}.contact_id AND {$this->_aliases['civicrm_contribution']}.is_test = 0
+               {$this->_aliases['civicrm_contribution']}.contact_id AND {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
           inner join {$this->_customDataTransactionalData_tableName} di
             on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
             and (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTall}) or ifnull(di.{$this->_customDataTransactionalData_column}, '') = '')
@@ -216,7 +216,7 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
                 on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
                 and (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTpg}))
             where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0
+              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
               and $receiveDateWhereClause
             group by {$this->_aliases['civicrm_contribution']}.contact_id
           ) t1 on t1.contact_id = {$this->_aliases['civicrm_contact']}.id
@@ -232,7 +232,7 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
                   or (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTpg}))
                 )
             where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0
+              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
               and $receiveDateWhereClause
             group by {$this->_aliases['civicrm_contribution']}.contact_id
           ) t2 on t2.contact_id = {$this->_aliases['civicrm_contact']}.id
@@ -244,7 +244,7 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
               inner join {$this->_customDataTransactionalData_tableName} di
                 on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
             where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0
+              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
               and $receiveDateWhereClause
             group by {$this->_aliases['civicrm_contribution']}.contact_id
           ) t3 on t3.contact_id = {$this->_aliases['civicrm_contact']}.id
@@ -328,11 +328,11 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
 
     $statistics['filters'][] = [
       'title' => 'Limited to',
-      'value' => 'One row per-contact, only for contacts having a contribution with TALL, FOAL, or (Null) in the "Letter Code" field, within the "Relevant Contribution Date" range.',
+      'value' => 'One row per-contact, only for contacts having a completed contribution with TALL, FOAL, or (Null) in the "Letter Code" field, within the "Relevant Contribution Date" range.',
     ];
     $statistics['filters'][] = [
       'title' => 'About "Sum" columns',
-      'value' => '"Sum" columns reflect contribution totals within the "Relevant Contribution Date" range.',
+      'value' => '"Sum" columns reflect totals of completed contributions within the "Relevant Contribution Date" range.',
     ];
 
     return $statistics;
