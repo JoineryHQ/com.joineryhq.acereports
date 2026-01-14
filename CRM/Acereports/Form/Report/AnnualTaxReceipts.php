@@ -59,6 +59,9 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
       0)
       ->execute()
       ->first();
+    if (empty($customField['column_name'])) {
+      $this->_fatalError('Could not find the relevant custom field; this is a bug in the report which requires developer attention.');
+    }
     $this->_customDataTransactionalData_column = $customField['column_name'];
     $this->_customDataTransactionalData_tableName = $customField['custom_group']['table_name'];
 
@@ -340,6 +343,11 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
     // to configure a 'group by' setting. Therefore we don't need parent::groupBy() at
     // all, and can simply force 'group by civicrm_contact.id'
     $this->_groupBy = " GROUP BY {$this->_aliases['civicrm_contact']}.id";
+  }
+
+  private function _fatalError($msg) {
+    \Civi::log()->critical($msg);
+    throw new \CRM_Core_Exception($msg);
   }
 
 }
