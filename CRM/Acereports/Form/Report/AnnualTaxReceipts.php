@@ -8,19 +8,19 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
   /**
    * Custom field id for relevant custom field.
    */
-  private $_customDataTransactionalData_fieldIdLetterGroup = 32;
+  private $_customDataTransactionalData_fieldIdLetterCode = 32;
 
   /**
-   * "TALL/FOAL" values in that custom field. String for use in mysql IN();
+   * Values in that custom field (along with null/no-value) to be considered "Deductible".
    */
-  private $_customDataTransactionalData_valuesTall = "'TALL', 'FOAL'";
+  private $_customDataTransactionalData_valuesDeductibleOrNull = ['TALL', 'FOAL', 'STOCK', 'GRANT', 'BEQST'];
 
   /**
-   * "TPG" values in that custom field. String for use in mysql IN();
+   * Values in that custom field to be considered "Third Party".
    */
-  private $_customDataTransactionalData_valuesTpg = "'TPG'";
+  private $_customDataTransactionalData_valuesThirdParty = ['TPG', 'Canada', 'IRA', 'CHARGIFT'];
 
-  /**
+/**
    * Custom-group table name for relevant custom field (auto-populated via api in __construct() )
    */
   private $_customDataTransactionalData_tableName = '';
@@ -51,12 +51,12 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
 
   public function __construct() {
     // These are local-dev values, to be commented out before commit to live!
-    // $this->_customDataTransactionalData_fieldIdLetterGroup = 6;
-    // $this->_customDataTransactionalData_valuesTall = "1, 2";
-    // $this->_customDataTransactionalData_valuesTpg = '3';
+    // $this->_customDataTransactionalData_fieldIdLetterCode = 7;
+    // $this->_customDataTransactionalData_valuesDeductibleOrNull = [1, 2];
+    // $this->_customDataTransactionalData_valuesThirdParty = [3];
 
     $customField = \Civi\Api4\CustomField::get(TRUE)
-      ->addWhere('id', '=', $this->_customDataTransactionalData_fieldIdLetterGroup)
+      ->addWhere('id', '=', $this->_customDataTransactionalData_fieldIdLetterCode)
       ->setLimit(1)
       ->addChain('custom_group', \Civi\Api4\CustomGroup::get(TRUE)
         ->addWhere('id', '=', '$custom_group_id')
@@ -138,23 +138,23 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
       'civicrm_contribution' => array(
         'dao' => 'CRM_Contribute_DAO_Contribution',
         'fields' => array(
-          'tall_sum' => array(
-            'dbAlias' => 'ifnull(sum(contribution_civireport.total_amount), 0)',
-            'title' => E::ts('TALL/FOAL/Null Sum'),
+          'deductible_sum' => array(
+            'dbAlias' => 'ifnull(t_deductible.sub_sum, 0)',
+            'title' => E::ts('Deductible Sum'),
             'default' => TRUE,
           ),
-          'tpg_sum' => array(
-            'dbAlias' => 'ifnull(t1.tpg_sum, 0)',
-            'title' => E::ts('TPG Sum'),
+          'third_sum' => array(
+            'dbAlias' => 'ifnull(t_third.sub_sum, 0)',
+            'title' => E::ts('Third-Party Sum'),
             'default' => TRUE,
           ),
           'both_sum' => array(
-            'dbAlias' => 'ifnull(t2.both_sum, 0)',
-            'title' => E::ts('Combined TALL/FOAL/Null and TPG Sum'),
+            'dbAlias' => 'ifnull(t_both.sub_sum, 0)',
+            'title' => E::ts('Combined Dedubctible and Third-Party Sum'),
             'default' => TRUE,
           ),
           'total_sum' => array(
-            'dbAlias' => 'ifnull(t3.total_sum, 0)',
+            'dbAlias' => 'ifnull(t_all.sub_sum, 0)',
             'title' => E::ts('All Contributions Sum'),
             'default' => TRUE,
           ),
@@ -164,6 +164,9 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
             'title' => E::ts('Relevant Contribution Date'),
             'operatorType' => CRM_Report_Form::OP_DATE,
             'default' => ((date('n') === '1') ? 'previous.year' : 'this.year'),
+            // pseudofield: this filter should not be applied by civireport; we'll use it
+            // in our own way -- mainly in _from().
+            'pseudofield' => TRUE,
           ),
         ),
         'grouping' => 'contribution-fields',
@@ -202,54 +205,74 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
   public function from() {
     $this->_from = NULL;
 
+    // Store a where clause for our 'pseudofield' filter, 'receive_date'.
     $receiveDateWhereClause = $this->_generateReceiveDateWhereClause();
+
+    // Store a collection of WHERE components for all "sum" sub-queries.
+    $subTotalsBaseWhere = "
+      {$this->_aliases['civicrm_contribution']}.is_test = 0
+      and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
+      and $receiveDateWhereClause
+    ";
+
+    // Convert arrays to strings suitable for mysql IN() operator.
+    $deductibleValuesIn = $this->_buildInClauseValues($this->_customDataTransactionalData_valuesDeductibleOrNull);
+    $thirdPartyValuesIn = $this->_buildInClauseValues($this->_customDataTransactionalData_valuesThirdParty);
+
 
     $this->_from = "
         FROM  civicrm_contact {$this->_aliases['civicrm_contact']} {$this->_aclFrom}
-          INNER JOIN civicrm_contribution {$this->_aliases['civicrm_contribution']}
-            ON {$this->_aliases['civicrm_contact']}.id =
-               {$this->_aliases['civicrm_contribution']}.contact_id AND {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
-          left join {$this->_customDataTransactionalData_tableName} di
-            on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
-
-          /* sub-query to get totals (for all contacts) for 'TPG' contributions within the given period */
           left join (
-            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as tpg_sum
-            from civicrm_contribution {$this->_aliases['civicrm_contribution']}
-              inner join {$this->_customDataTransactionalData_tableName} di
-                on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
-                and (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTpg}))
-            where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
-              and $receiveDateWhereClause
-            group by {$this->_aliases['civicrm_contribution']}.contact_id
-          ) t1 on t1.contact_id = {$this->_aliases['civicrm_contact']}.id
-
-          /* sub-query to get totals (for all contacts) for 'TPG and TALL/FOAL/NULL' contributions within the given period */
-          left join (
-            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as both_sum
+            /* sub-query to get totals (for all contacts) for 'Deductible' contributions within the given period */
+            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as sub_sum
             from civicrm_contribution {$this->_aliases['civicrm_contribution']}
               left join {$this->_customDataTransactionalData_tableName} di
                 on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
             where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
-              and $receiveDateWhereClause
-              and (
-                (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTall}) or ifnull(di.{$this->_customDataTransactionalData_column}, '') = '')
-                or (di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTpg}))
+              (
+                di.{$this->_customDataTransactionalData_column} in ({$deductibleValuesIn})
+                or ifnull(di.{$this->_customDataTransactionalData_column}, '') = ''
               )
+              and $subTotalsBaseWhere
             group by {$this->_aliases['civicrm_contribution']}.contact_id
-          ) t2 on t2.contact_id = {$this->_aliases['civicrm_contact']}.id
+          ) t_deductible on t_deductible.contact_id = {$this->_aliases['civicrm_contact']}.id
 
-          /* sub-query to get totals (for all contacts) for ALL contributions within the given period */
           left join (
-            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as total_sum
+            /* sub-query to get totals (for all contacts) for 'third-party' contributions within the given period */
+            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as sub_sum
+            from civicrm_contribution {$this->_aliases['civicrm_contribution']}
+              inner join {$this->_customDataTransactionalData_tableName} di
+                on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
+                  and di.{$this->_customDataTransactionalData_column} in ({$thirdPartyValuesIn})
+            where
+              $subTotalsBaseWhere
+            group by {$this->_aliases['civicrm_contribution']}.contact_id
+          ) t_third on t_third.contact_id = {$this->_aliases['civicrm_contact']}.id
+
+          left join (
+            /* sub-query to get totals (for all contacts) for 'deductible' AND 'third-party' contributions within the given period */
+            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as sub_sum
+            from civicrm_contribution {$this->_aliases['civicrm_contribution']}
+              left join {$this->_customDataTransactionalData_tableName} di
+                on di.entity_id = {$this->_aliases['civicrm_contribution']}.id
+            where
+              (
+                di.{$this->_customDataTransactionalData_column} in ({$deductibleValuesIn})
+                or ifnull(di.{$this->_customDataTransactionalData_column}, '') = ''
+                or di.{$this->_customDataTransactionalData_column} in ({$thirdPartyValuesIn})
+              )
+              and $subTotalsBaseWhere
+            group by {$this->_aliases['civicrm_contribution']}.contact_id
+          ) t_both on t_both.contact_id = {$this->_aliases['civicrm_contact']}.id
+
+          left join (
+            /* sub-query to get totals (for all contacts) for ALL contributions within the given period */
+            select {$this->_aliases['civicrm_contribution']}.contact_id, sum({$this->_aliases['civicrm_contribution']}.total_amount) as sub_sum
             from civicrm_contribution {$this->_aliases['civicrm_contribution']}
             where
-              {$this->_aliases['civicrm_contribution']}.is_test = 0 and {$this->_aliases['civicrm_contribution']}.contribution_status_id = 1
-              and $receiveDateWhereClause
+              $subTotalsBaseWhere
             group by {$this->_aliases['civicrm_contribution']}.contact_id
-          ) t3 on t3.contact_id = {$this->_aliases['civicrm_contact']}.id
+          ) t_all on t_all.contact_id = {$this->_aliases['civicrm_contact']}.id
       ";
     $this->joinAddressFromContact();
     $this->joinEmailFromContact();
@@ -328,25 +351,44 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
       ];
     }
 
+    // Get custom field properties for display.
+    $letterCodeField = \Civi\Api4\CustomField::get()
+      ->addWhere('id', '=', $this->_customDataTransactionalData_fieldIdLetterCode)
+      ->execute()
+      ->first();
+
     $statistics['filters'][] = [
       'title' => 'Limited to',
-      'value' => 'One row per-contact, only for contacts having a completed contribution with TALL, FOAL, or (Null) in the "Letter Code" field, within the "Relevant Contribution Date" range.',
+      'value' => E::ts(
+        'One row per-contact, only for contacts having at least one completed contribution with a Deductible or Third-Party value in the "%1" field, within the "Relevant Contribution Date" range.',
+        ['%1' => $letterCodeField['label']],
+      ),
     ];
     $statistics['filters'][] = [
       'title' => 'About "Sum" columns',
       'value' => '"Sum" columns reflect totals of completed contributions within the "Relevant Contribution Date" range.',
     ];
 
+    $options = $this->_getCustomFieldOptions($letterCodeField['option_group_id']);
+    $statistics['filters'][] = [
+      'title' => '"Deductible" Letter Codes are:',
+      'value' => implode('; ', array_intersect_key($options, array_flip($this->_customDataTransactionalData_valuesDeductibleOrNull))) . '; (Null)',
+    ];
+    $statistics['filters'][] = [
+      'title' => '"Third-Party" Letter Codes are:',
+      'value' => implode('; ', array_intersect_key($options, array_flip($this->_customDataTransactionalData_valuesThirdParty))),
+    ];
+
+
     return $statistics;
   }
 
   public function where() {
     parent::where();
+    // Among all other filters, add our own requirement that the contact must
+    // have a "both sum" > 0.
     $this->_where .= "
-      and (
-        di.{$this->_customDataTransactionalData_column} in ({$this->_customDataTransactionalData_valuesTall})
-        or ifnull(di.{$this->_customDataTransactionalData_column}, '') = ''
-      )
+      and t_both.sub_sum > 0
     ";
   }
 
@@ -368,4 +410,51 @@ class CRM_Acereports_Form_Report_AnnualTaxReceipts extends CRM_Report_Form {
     throw new \CRM_Core_Exception($msg);
   }
 
+  /**
+   * Get a list of options for the give optionGroup.
+   * @param int $optionGroupId
+   * @return array
+   */
+  private function _getCustomFieldOptions($optionGroupId) {
+    $options = \Civi\Api4\OptionValue::get()
+      ->addWhere('option_group_id', '=', $optionGroupId)
+      ->addWhere('is_active', '=', 1)
+      ->addOrderBy('label')
+      ->execute()
+      ->indexBy('value')
+      ->column('label');
+
+    return $options;
+  }
+
+  /**
+   * For an array of strings, convert them to a single sql-safe string suitable for
+   * use in the IN() operator.
+   *
+   * @param array $values
+   * @return string
+   */
+  private function _buildInClauseValues(array $values): string {
+    // If array is empty, make sure we return a sql-valid IN() argument.
+    if (empty($values)) {
+      return 'NULL';
+    }
+
+    // Build prams and placeholders to be used in composeQuery().
+    $params = [];
+    $placeholders = [];
+
+    $i = 0;
+    foreach ($values as $value) {
+      $i++;
+      $params[$i] = [$value, 'String'];
+      $placeholders[] = "%{$i}";
+    }
+
+    // Compile the template sql and parse it into valid sql.
+    $query = implode(',', $placeholders);
+    $queryComposed = CRM_Core_DAO::composeQuery($query, $params);
+
+    return $queryComposed;
+  }
 }
